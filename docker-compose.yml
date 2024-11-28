@@ -1,0 +1,140 @@
+version: '3.8'
+
+services:
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - eduflow-network
+
+  submissions-service:
+    build: ./micro-services/submissions-service
+    environment:
+      - PORT=3001
+      - DATABASE_URL=postgresql://postgres:postgres@submissions-db:5432/submissions
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      submissions-db:
+        condition: service_healthy
+    networks:
+      - eduflow-network
+    volumes:
+      - ./micro-services/submissions-service/uploads:/app/uploads
+
+  submissions-db:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=submissions
+    volumes:
+      - submissions_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - eduflow-network
+
+  users-service:
+    build: ./micro-services/users-service
+    environment:
+      - PORT=3002
+      - DATABASE_URL=postgresql://postgres:postgres@users-db:5432/users
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      users-db:
+        condition: service_healthy
+    networks:
+      - eduflow-network
+
+  users-db:
+    image: postgres:15-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=users
+    volumes:
+      - users_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - eduflow-network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"  # AMQP protocol port
+      - "15672:15672"  # Management UI
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=admin
+    networks:
+      - eduflow-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  notifications-service:
+    build:
+      context: ./micro-services/notifications-service
+      dockerfile: Dockerfile
+    environment:
+      - PORT=3004
+      - DATABASE_URL=postgresql://postgres:postgres@notifications-db:5432/notifications?schema=public
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      notifications-db:
+        condition: service_healthy
+    networks:
+      - eduflow-network
+
+  notifications-db:
+    image: postgres:15
+    ports:
+      - "5435:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=notifications
+    volumes:
+      - notifications_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - eduflow-network
+
+networks:
+  eduflow-network:
+    driver: bridge
+
+volumes:
+  submissions_db_data:
+  users_db_data:
+  notifications_data:
